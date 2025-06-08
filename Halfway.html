@@ -1,0 +1,464 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Halfway Meeting Point</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body, html {
+      height: 100%;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1470&q=80') no-repeat center center fixed;
+      background-size: cover;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px;
+      max-width: 800px;
+      margin: auto;
+      background-color: rgba(255, 255, 255, 0);
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #000;
+      text-shadow: 0 0 4px rgba(255, 255, 255, 0.7);
+    }
+
+    input, select, button {
+      width: 100%;
+      max-width: 400px;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+      box-sizing: border-box;
+      background-color: rgba(255, 255, 255, 0.8);
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #map {
+      width: 100%;
+      height: 600px;
+      max-width: 1000px;
+      border-radius: 10px;
+      margin-top: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.3);
+    }
+
+    .radius-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 10px 0;
+      color: white;
+      text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+    }
+
+    #radiusInput {
+      width: 120px;
+      text-align: center;
+    }
+
+    .result {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+
+    .result .info {
+      flex-grow: 1;
+    }
+
+    .result img {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-left: 15px;
+    }
+
+    #results {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    #loadMoreBtn {
+      display: none;
+      margin-top: 10px;
+    }
+  
+  .activity-title {
+    margin-top: 0;
+    margin-bottom: 5px;
+    font-size: 18px;
+    color: #333;
+    text-align: left;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Find a Halfway Meeting Point</h2>
+
+  <input id="address1" type="text" placeholder="Enter first address" />
+  <input id="address2" type="text" placeholder="Enter second address" />
+
+  <div class="radius-group">
+    <label for="radiusInput">Select Radius (miles):</label>
+    <input id="radiusInput" type="number" min="1" step="1" value="2" />
+  </div>
+
+  <select id="activityType">
+    <option value="all">All Activities</option>
+    <option value="restaurant">Restaurant / Pub</option>
+    <option value="cafe">Cafe</option>
+    <option value="park">Children's Park</option>
+    <option value="dog_park">Dog Walk Area</option>
+    <option value="campground">Camping</option>
+    <option value="lodging">Hotel</option>
+  </select>
+
+  <button onclick="calculateHalfway()">Find Halfway Point</button>
+
+  <div id="map"></div>
+  <div id="results"></div>
+  <button id="loadMoreBtn" onclick="loadMore()">Load More</button>
+</div>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA-8FH8TSXGtm-FbUHOw-FwP93u2ouyt6A&libraries=places,geometry"></script>
+<script>
+  let map, service;
+  let midpointMarker, radiusCircle;
+  let placeMarkers = [];
+  let allResults = [];
+  let currentIndex = 0;
+
+  function initMap() {
+    map = new google.maps.Map(document.getElementById("map"), {
+      zoom: 10,
+      center: { lat: 51.5074, lng: -0.1278 }
+    });
+    service = new google.maps.places.PlacesService(map);
+  }
+
+  function clearPrevious() {
+    if (midpointMarker) midpointMarker.setMap(null);
+    if (radiusCircle) radiusCircle.setMap(null);
+    placeMarkers.forEach(marker => marker.setMap(null));
+    placeMarkers = [];
+    document.getElementById("results").innerHTML = '';
+    allResults = [];
+    currentIndex = 0;
+    document.getElementById("loadMoreBtn").style.display = 'none';
+  }
+
+  function calculateHalfway() {
+    clearPrevious();
+
+    const address1 = document.getElementById("address1").value;
+    const address2 = document.getElementById("address2").value;
+    const radiusMiles = parseInt(document.getElementById("radiusInput").value, 10);
+    const radiusMeters = radiusMiles * 1609.34;
+
+    if (!address1 || !address2 || radiusMiles < 1) {
+      alert("Please enter two addresses and a valid radius.");
+      return;
+    }
+
+    const directionsService = new google.maps.DirectionsService();
+    directionsService.route({
+      origin: address1,
+      destination: address2,
+      travelMode: 'DRIVING'
+    }, (result, status) => {
+      if (status === 'OK') {
+        const path = google.maps.geometry.encoding.decodePath(result.routes[0].overview_polyline);
+        const totalLength = google.maps.geometry.spherical.computeLength(path);
+        const halfway = totalLength / 2;
+        let distance = 0;
+
+        for (let i = 0; i < path.length - 1; i++) {
+          const segment = google.maps.geometry.spherical.computeDistanceBetween(path[i], path[i + 1]);
+          if (distance + segment >= halfway) {
+            const ratio = (halfway - distance) / segment;
+            const midpoint = google.maps.geometry.spherical.interpolate(path[i], path[i + 1], ratio);
+            showMidpoint(midpoint, radiusMeters);
+            searchNearby(midpoint, radiusMeters);
+            break;
+          }
+          distance += segment;
+        }
+      } else {
+        alert("Failed to get directions: " + status);
+      }
+    });
+  }
+
+  function showMidpoint(location, radius) {
+    midpointMarker = new google.maps.Marker({
+      position: location,
+      map,
+      title: "Halfway Point",
+      icon: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
+    });
+
+    radiusCircle = new google.maps.Circle({
+      map,
+      center: location,
+      radius: radius,
+      fillColor: "#007bff",
+      fillOpacity: 0.2,
+      strokeColor: "#007bff",
+      strokeOpacity: 0.6,
+      strokeWeight: 2
+    });
+
+    map.fitBounds(radiusCircle.getBounds());
+  }
+
+  function searchNearby(location, radius) {
+    const activity = document.getElementById("activityType").value;
+    const types = (activity === "all") ? ["restaurant", "cafe", "park", "campground", "lodging"] :
+                 (activity === "dog_park") ? ["park"] : [activity];
+
+    let pending = types.length;
+
+    types.forEach(type => {
+      const request = {
+        location,
+        radius,
+        type: type,
+        keyword: (activity === "dog_park" ? "dog" : undefined),
+      };
+
+      service.nearbySearch(request, (results, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK && results.length) {
+          allResults.push(...results);
+        }
+        pending--;
+        if (pending === 0) {
+          allResults = [...new Map(allResults.map(item => [item.place_id, item])).values()];
+          allResults.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          showNextResults();
+        }
+      });
+    });
+  }
+
+  function showNextResults() {
+    const batch = allResults.slice(currentIndex, currentIndex + 10);
+    const address1 = document.getElementById("address1").value;
+    const address2 = document.getElementById("address2").value;
+
+    batch.forEach(place => {
+      service.getDetails({ placeId: place.place_id }, (details, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK) {
+          const marker = new google.maps.Marker({
+            map,
+            position: details.geometry.location,
+            title: details.name
+          });
+          placeMarkers.push(marker);
+
+          const photoUrl = details.photos ? details.photos[0].getUrl({ maxWidth: 100, maxHeight: 100 }) : '';
+
+          const div = document.createElement("div");
+          div.className = "result";
+          div.innerHTML = `
+            <div class="info">
+              <strong>${details.name}</strong><br>
+              📍 ${details.formatted_address || details.vicinity || "N/A"}<br>
+              ⭐ ${details.rating || "N/A"}<br>
+              ☎️ ${details.formatted_phone_number || "N/A"}<br>
+              🌐 ${details.website ? `<a href="${details.website}" target="_blank">Visit Website</a>` : 'N/A'}<br>
+              🚗 From <strong>${address1}</strong>: <span class="drive1">Calculating...</span><br>
+              🚗 From <strong>${address2}</strong>: <span class="drive2">Calculating...</span>
+            </div>
+            ${photoUrl ? `<img src="${photoUrl}" alt="Photo of ${details.name}">` : ''}
+          `;
+          document.getElementById("results").appendChild(div);
+
+          const distanceService = new google.maps.DistanceMatrixService();
+          distanceService.getDistanceMatrix({
+            origins: [address1, address2],
+            destinations: [details.geometry.location],
+            travelMode: google.maps.TravelMode.DRIVING
+          }, (response, status) => {
+            if (status === "OK") {
+              const elems = div.querySelectorAll("span.drive1, span.drive2");
+              if (response.rows[0] && response.rows[0].elements[0].status === "OK") {
+                elems[0].innerText = response.rows[0].elements[0].duration.text;
+              }
+              if (response.rows[1] && response.rows[1].elements[0].status === "OK") {
+                elems[1].innerText = response.rows[1].elements[0].duration.text;
+              }
+            }
+          });
+        }
+      });
+    });
+
+    currentIndex += 10;
+    document.getElementById("loadMoreBtn").style.display = currentIndex < allResults.length ? 'block' : 'none';
+  }
+
+  function loadMore() {
+    showNextResults();
+  }
+
+  window.onload = initMap;
+</script>
+
+
+<style>
+  .ad-box {
+    position: fixed;
+    width: 220px;
+    height: 700px;
+    top: 80px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #aaa;
+    box-shadow: 0 0 14px rgba(0,0,0,0.35);
+    padding: 10px;
+    z-index: 9999;
+    text-align: center;
+    overflow-y: auto;
+  }
+
+  .ad-left {
+    left: 10px;
+  }
+
+  .ad-right {
+    right: 10px;
+  }
+
+  .ad-box img, .ad-box video {
+    width: 100%;
+    height: auto;
+    margin-top: 10px;
+    border-radius: 6px;
+  }
+
+  @media (max-width: 1200px) {
+    .ad-box {
+      display: none;
+    }
+  }
+
+  .activity-title {
+    margin-top: 0;
+    margin-bottom: 5px;
+    font-size: 18px;
+    color: #333;
+    text-align: left;
+  }
+</style>
+
+<div class="ad-box ad-right">
+  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/88/Daily_Mail_Online_Logo.svg/512px-Daily_Mail_Online_Logo.svg.png" alt="Daily Mail">
+</div>
+
+
+<script>
+  const happyImages = Array.from({length: 8}, (_, i) => `https://source.unsplash.com/200x150/?happy,place,joy&sig=${i}`);
+
+  let currentIndex = 0;
+
+  function rotateAdImages() {
+    const ads = document.querySelectorAll('.ad-box img');
+    ads.forEach(ad => {
+      ad.src = happyImages[currentIndex] + "?auto=format&fit=crop&w=200&q=80";
+    });
+    currentIndex = (currentIndex + 1) % happyImages.length;
+  }
+
+  setInterval(rotateAdImages, 4000); // change every 4 seconds
+  window.onload = rotateAdImages;
+</script>
+
+<style>
+  .ad-box {
+    position: fixed;
+    width: 220px;
+    height: 700px;
+    top: 80px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #aaa;
+    box-shadow: 0 0 14px rgba(0,0,0,0.35);
+    padding: 10px;
+    z-index: 9999;
+    text-align: center;
+    overflow-y: auto;
+  }
+
+  .ad-left {
+    left: 160px;
+  }
+
+  .ad-right {
+    right: 160px;
+  }
+
+  .ad-box img {
+    width: 100%;
+    height: auto;
+    margin-top: 10px;
+    border-radius: 6px;
+  }
+
+  @media (max-width: 1200px) {
+    .ad-box {
+      display: none;
+    }
+  }
+
+  .activity-title {
+    margin-top: 0;
+    margin-bottom: 5px;
+    font-size: 18px;
+    color: #333;
+    text-align: left;
+  }
+</style>
+
+<div class="ad-box ad-right">
+  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/88/Daily_Mail_Online_Logo.svg/512px-Daily_Mail_Online_Logo.svg.png" alt="Daily Mail">
+</div>
+
+<div class="ad-box ad-left">
+  <img src="https://source.unsplash.com/random/200x300?joy,travel,scenery" alt="TripAdvisor">
+</div>
+
+</body>
+
+</html>
